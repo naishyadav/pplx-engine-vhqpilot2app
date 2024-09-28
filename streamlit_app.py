@@ -1,102 +1,93 @@
 import streamlit as st
-import requests
-import json
 import pandas as pd
-import io
-import base64
+from pandasai import PandasAI
+from pandasai.llm.openai import OpenAI
+import os
 
-# Function to simulate AI response (replace with actual AI integration later)
-def get_ai_response(query, context=None):
-    # This is a placeholder. In a real app, you'd integrate with an AI model or API
-    response = f"Here's a simulated response to your query: '{query}'"
-    if context:
-        response += f"\nContext considered: {context}"
-    return response
+# Set up OpenAI API key
+os.environ["OPENAI_API_KEY"] = "your_openai_api_key_here"
 
-# Function to search the web (using a free API as an example)
-def search_web(query):
-    url = f"https://api.duckduckgo.com/?q={query}&format=json"
-    response = requests.get(url)
-    data = json.loads(response.text)
-    return data.get('Abstract', 'No results found.')
+# Initialize PandasAI with OpenAI
+llm = OpenAI()
+pandas_ai = PandasAI(llm)
 
-# Function to generate a download link for dataframes
-def get_table_download_link(df):
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="results.csv">Download CSV File</a>'
-    return href
-
-# Streamlit app
 def main():
-    st.set_page_config(page_title="Perplexity-like App", layout="wide")
+    st.set_page_config(page_title="CSV Data Cleaning with PandasAI", layout="wide")
 
-    # Sidebar
-    st.sidebar.title("Options")
-    model = st.sidebar.selectbox("Choose AI Model", ["GPT-3.5", "GPT-4", "Claude"])
-    include_web = st.sidebar.checkbox("Include web results", value=True)
-    upload_file = st.sidebar.file_uploader("Upload a file for context", type=["txt", "pdf", "csv"])
+    st.title("CSV Data Cleaning with PandasAI")
 
-    # Main area
-    st.title("Perplexity-like App")
+    # File uploader
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-    # User input
-    query = st.text_input("Ask me anything:")
+    if uploaded_file is not None:
+        # Read the CSV file
+        df = pd.read_csv(uploaded_file)
 
-    # File content (if uploaded)
-    file_content = None
-    if upload_file is not None:
-        if upload_file.type == "text/plain":
-            file_content = upload_file.getvalue().decode("utf-8")
-        elif upload_file.type == "application/pdf":
-            st.warning("PDF support not implemented in this example.")
-        elif upload_file.type == "text/csv":
-            df = pd.read_csv(upload_file)
-            st.write("Uploaded CSV:")
-            st.dataframe(df.head())
-            file_content = df.to_string()
+        # Display original dataframe
+        st.subheader("Original Data")
+        st.dataframe(df.head())
 
-    if query:
-        # Create columns for results
-        col1, col2 = st.columns([2, 1])
+        # Display dataframe info
+        st.subheader("Data Info")
+        buffer = io.StringIO()
+        df.info(buf=buffer)
+        s = buffer.getvalue()
+        st.text(s)
 
-        with col1:
-            st.subheader("AI Response")
-            with st.spinner("Generating response..."):
-                ai_response = get_ai_response(query, context=file_content)
-                st.write(ai_response)
+        # PandasAI cleaning options
+        st.subheader("Data Cleaning Options")
 
-            if include_web:
-                st.subheader("Web Search Results")
-                with st.spinner("Searching the web..."):
-                    web_result = search_web(query)
-                    st.write(web_result)
+        cleaning_option = st.selectbox(
+            "Choose a cleaning operation",
+            [
+                "Remove duplicates",
+                "Handle missing values",
+                "Convert data types",
+                "Remove outliers",
+                "Custom cleaning prompt"
+            ]
+        )
 
-        with col2:
-            st.subheader("Sources")
-            st.write("1. Example Source 1")
-            st.write("2. Example Source 2")
-            st.write("3. Example Source 3")
+        if cleaning_option == "Remove duplicates":
+            prompt = "Remove duplicate rows from the dataframe"
+        elif cleaning_option == "Handle missing values":
+            method = st.selectbox("Choose method", ["Drop", "Fill with mean", "Fill with median", "Fill with mode"])
+            prompt = f"Handle missing values in the dataframe by {method.lower()}"
+        elif cleaning_option == "Convert data types":
+            column = st.selectbox("Choose column", df.columns)
+            new_type = st.selectbox("Choose new data type", ["int", "float", "string", "datetime"])
+            prompt = f"Convert the '{column}' column to {new_type} data type"
+        elif cleaning_option == "Remove outliers":
+            column = st.selectbox("Choose column", df.columns)
+            prompt = f"Remove outliers from the '{column}' column using the IQR method"
+        else:
+            prompt = st.text_input("Enter your custom cleaning prompt")
 
-        # Additional features
-        st.subheader("Additional Features")
-        
-        # Sentiment analysis (simulated)
-        sentiment = st.selectbox("Analyze sentiment of the response:", ["Positive", "Neutral", "Negative"])
-        st.write(f"Sentiment: {sentiment}")
+        if st.button("Clean Data"):
+            with st.spinner("Cleaning data..."):
+                try:
+                    cleaned_df = pandas_ai.run(df, prompt)
+                    st.subheader("Cleaned Data")
+                    st.dataframe(cleaned_df.head())
 
-        # Word cloud (placeholder)
-        st.write("Word Cloud:")
-        st.image("https://via.placeholder.com/400x200?text=Word+Cloud+Placeholder")
+                    # Compare original and cleaned dataframes
+                    st.subheader("Data Comparison")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("Original Data Shape:", df.shape)
+                    with col2:
+                        st.write("Cleaned Data Shape:", cleaned_df.shape)
 
-        # Export results
-        st.subheader("Export Results")
-        results_df = pd.DataFrame({"Query": [query], "AI Response": [ai_response], "Web Result": [web_result]})
-        st.markdown(get_table_download_link(results_df), unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("---")
-    st.markdown("Created with Streamlit | Not affiliated with Perplexity AI")
+                    # Option to download cleaned data
+                    csv = cleaned_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download cleaned data as CSV",
+                        data=csv,
+                        file_name="cleaned_data.csv",
+                        mime="text/csv",
+                    )
+                except Exception as e:
+                    st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
