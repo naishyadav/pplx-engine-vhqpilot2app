@@ -1,78 +1,131 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from textblob import TextBlob
+import plotly.graph_objects as go
+from wordcloud import WordCloud
 
-def objective_function(x):
-    return -(x**2) + 5*x + 10  # Simple quadratic function
+# Mock data generation
+def generate_mock_data(n_startups, n_investors):
+    startups = pd.DataFrame({
+        'name': [f"Startup {i}" for i in range(1, n_startups + 1)],
+        'industry': np.random.choice(['Tech', 'Biotech', 'Fintech', 'E-commerce', 'AI'], n_startups),
+        'funding_stage': np.random.choice(['Seed', 'Series A', 'Series B', 'Series C'], n_startups),
+        'funding_sought': np.random.randint(100000, 10000000, n_startups),
+        'description': [f"Innovative {np.random.choice(['platform', 'solution', 'technology'])} for {np.random.choice(['improving', 'revolutionizing', 'disrupting'])} {np.random.choice(['healthcare', 'finance', 'education', 'transportation'])}" for _ in range(n_startups)]
+    })
+    
+    investors = pd.DataFrame({
+        'name': [f"Investor {i}" for i in range(1, n_investors + 1)],
+        'preferred_industries': [', '.join(np.random.choice(['Tech', 'Biotech', 'Fintech', 'E-commerce', 'AI'], size=np.random.randint(1, 4), replace=False)) for _ in range(n_investors)],
+        'preferred_stages': [', '.join(np.random.choice(['Seed', 'Series A', 'Series B', 'Series C'], size=np.random.randint(1, 4), replace=False)) for _ in range(n_investors)],
+        'min_investment': np.random.randint(50000, 1000000, n_investors),
+        'max_investment': np.random.randint(1000000, 20000000, n_investors),
+        'previous_investments': np.random.randint(1, 50, n_investors)
+    })
+    
+    return startups, investors
 
-def create_individual():
-    return np.random.uniform(-10, 10)
+# Sentiment analysis
+def get_sentiment(text):
+    return TextBlob(text).sentiment.polarity
 
-def crossover(parent1, parent2):
-    return (parent1 + parent2) / 2
+# Matching algorithm
+def match_startups_to_investors(startups, investors):
+    matches = []
+    
+    # TF-IDF vectorization for startup descriptions
+    tfidf = TfidfVectorizer()
+    startup_desc_vecs = tfidf.fit_transform(startups['description'])
+    
+    for _, investor in investors.iterrows():
+        investor_industry_vec = tfidf.transform([investor['preferred_industries']])
+        
+        for _, startup in startups.iterrows():
+            # Industry matching
+            industry_match = cosine_similarity(startup_desc_vecs[startups.index == startup.name], investor_industry_vec)[0][0]
+            
+            # Funding stage matching
+            stage_match = int(startup['funding_stage'] in investor['preferred_stages'])
+            
+            # Funding amount matching
+            funding_match = 1 if investor['min_investment'] <= startup['funding_sought'] <= investor['max_investment'] else 0
+            
+            # Sentiment matching
+            sentiment_match = get_sentiment(startup['description'])
+            
+            # Calculate overall match score
+            match_score = (industry_match * 0.4 + stage_match * 0.3 + funding_match * 0.2 + sentiment_match * 0.1) * 100
+            
+            matches.append({
+                'startup': startup['name'],
+                'investor': investor['name'],
+                'match_score': match_score
+            })
+    
+    return pd.DataFrame(matches)
 
-def mutate(individual, mutation_rate):
-    if np.random.random() < mutation_rate:
-        return individual + np.random.normal(0, 1)
-    return individual
-
-def genetic_algorithm(population_size, generations, mutation_rate):
-    population = [create_individual() for _ in range(population_size)]
-    best_fitness_history = []
-
-    for gen in range(generations):
-        fitness_scores = [objective_function(ind) for ind in population]
-        best_fitness = max(fitness_scores)
-        best_fitness_history.append(best_fitness)
-
-        selected_indices = np.random.choice(range(population_size), size=population_size, p=np.array(fitness_scores)/sum(fitness_scores))
-        selected = [population[i] for i in selected_indices]
-
-        new_population = []
-        for i in range(0, population_size, 2):
-            parent1, parent2 = selected[i], selected[i+1]
-            child1 = mutate(crossover(parent1, parent2), mutation_rate)
-            child2 = mutate(crossover(parent1, parent2), mutation_rate)
-            new_population.extend([child1, child2])
-
-        population = new_population
-
-    return population, best_fitness_history
-
+# Streamlit app
 def main():
-    st.title("Genetic Algorithm Proof-of-Concept")
-    st.write("This app demonstrates a simple genetic algorithm optimizing a quadratic function.")
+    st.title("Startup Investor Matching Algorithm")
+    st.write("This app demonstrates a sophisticated algorithm for matching startups with potential investors.")
 
-    population_size = st.slider("Population Size", min_value=10, max_value=200, value=50, step=10)
-    generations = st.slider("Number of Generations", min_value=10, max_value=500, value=100, step=10)
-    mutation_rate = st.slider("Mutation Rate", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
+    # Generate mock data
+    n_startups = st.sidebar.slider("Number of Startups", 10, 100, 50)
+    n_investors = st.sidebar.slider("Number of Investors", 5, 50, 20)
+    startups, investors = generate_mock_data(n_startups, n_investors)
 
-    if st.button("Run Genetic Algorithm"):
-        final_population, fitness_history = genetic_algorithm(population_size, generations, mutation_rate)
+    # Run matching algorithm
+    if st.button("Run Matching Algorithm"):
+        matches = match_startups_to_investors(startups, investors)
 
-        # Plot fitness history
+        # Display top matches
+        st.subheader("Top Matches")
+        top_matches = matches.sort_values('match_score', ascending=False).head(10)
+        st.table(top_matches)
+
+        # Interactive heatmap of match scores
+        st.subheader("Match Score Heatmap")
+        pivot_matches = matches.pivot(index='startup', columns='investor', values='match_score')
+        fig = go.Figure(data=go.Heatmap(z=pivot_matches.values, x=pivot_matches.columns, y=pivot_matches.index, colorscale='Viridis'))
+        fig.update_layout(title='Startup-Investor Match Scores', xaxis_title='Investors', yaxis_title='Startups')
+        st.plotly_chart(fig)
+
+        # Startup industry distribution
+        st.subheader("Startup Industry Distribution")
+        industry_counts = startups['industry'].value_counts()
         fig, ax = plt.subplots()
-        ax.plot(range(generations), fitness_history)
-        ax.set_xlabel("Generation")
-        ax.set_ylabel("Best Fitness")
-        ax.set_title("Fitness History")
+        ax.pie(industry_counts.values, labels=industry_counts.index, autopct='%1.1f%%')
         st.pyplot(fig)
 
-        # Plot final population
-        x = np.linspace(-10, 10, 200)
-        y = [objective_function(xi) for xi in x]
-
+        # Word cloud of startup descriptions
+        st.subheader("Startup Description Word Cloud")
+        text = ' '.join(startups['description'])
+        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
         fig, ax = plt.subplots()
-        ax.plot(x, y, label='Objective Function')
-        ax.scatter(final_population, [objective_function(ind) for ind in final_population], color='red', label='Final Population')
-        ax.set_xlabel("x")
-        ax.set_ylabel("f(x)")
-        ax.set_title("Final Population")
-        ax.legend()
+        ax.imshow(wordcloud, interpolation='bilinear')
+        ax.axis('off')
         st.pyplot(fig)
 
-        st.write(f"Best solution found: x = {max(final_population, key=objective_function):.4f}")
-        st.write(f"Best fitness: {objective_function(max(final_population, key=objective_function)):.4f}")
+        # Investor preference analysis
+        st.subheader("Investor Preferences")
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        investors['preferred_industries'].str.split(', ', expand=True).stack().value_counts().plot(kind='bar', ax=ax1)
+        ax1.set_title('Preferred Industries')
+        ax1.set_xlabel('Industry')
+        ax1.set_ylabel('Count')
+        
+        investors['preferred_stages'].str.split(', ', expand=True).stack().value_counts().plot(kind='bar', ax=ax2)
+        ax2.set_title('Preferred Funding Stages')
+        ax2.set_xlabel('Stage')
+        ax2.set_ylabel('Count')
+        
+        st.pyplot(fig)
 
 if __name__ == "__main__":
     main()
