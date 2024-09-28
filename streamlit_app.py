@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_echarts import st_echarts
 import datetime
 
 # Set page config for a wider layout
@@ -121,7 +120,7 @@ col1.metric("Industry", startup_data['industry'])
 col2.metric("Funding Round", startup_data['funding_round'])
 col3.metric("Employees", f"{startup_data['employees']:,}")
 
-# Radar chart for startup comparison
+# Radar chart for startup comparison (using Plotly instead of echarts)
 st.subheader('Startup Comparison')
 radar_data = filtered_df.groupby('startup').agg({
     'amount': 'sum',
@@ -130,29 +129,28 @@ radar_data = filtered_df.groupby('startup').agg({
 }).reset_index()
 
 radar_data = radar_data.sort_values('amount', ascending=False).head(5)
-radar_startups = radar_data['startup'].tolist()
 
-options = {
-    "title": {"text": "Top 5 Startups Comparison"},
-    "legend": {"data": radar_startups},
-    "radar": {
-        "indicator": [
-            {"name": "Funding", "max": radar_data['amount'].max()},
-            {"name": "Valuation", "max": radar_data['valuation'].max()},
-            {"name": "Employees", "max": radar_data['employees'].max()}
-        ]
-    },
-    "series": [{
-        "type": "radar",
-        "data": [
-            {
-                "value": [row['amount'], row['valuation'], row['employees']],
-                "name": row['startup']
-            } for _, row in radar_data.iterrows()
-        ]
-    }]
-}
-st_echarts(options=options, height="500px")
+fig = go.Figure()
+
+for _, row in radar_data.iterrows():
+    fig.add_trace(go.Scatterpolar(
+        r=[row['amount'], row['valuation'], row['employees']],
+        theta=['Funding', 'Valuation', 'Employees'],
+        fill='toself',
+        name=row['startup']
+    ))
+
+fig.update_layout(
+    polar=dict(
+        radialaxis=dict(
+            visible=True,
+            range=[0, max(radar_data['amount'].max(), radar_data['valuation'].max(), radar_data['employees'].max())]
+        )),
+    showlegend=True,
+    title='Top 5 Startups Comparison'
+)
+
+st.plotly_chart(fig, use_container_width=True)
 
 # Investor sentiment analysis (mock data)
 st.subheader('Investor Sentiment Analysis')
