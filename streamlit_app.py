@@ -1,102 +1,78 @@
 import streamlit as st
-import requests
-import json
-import pandas as pd
-import io
-import base64
+import numpy as np
+import matplotlib.pyplot as plt
 
-# Function to simulate AI response (replace with actual AI integration later)
-def get_ai_response(query, context=None):
-    # This is a placeholder. In a real app, you'd integrate with an AI model or API
-    response = f"Here's a simulated response to your query: '{query}'"
-    if context:
-        response += f"\nContext considered: {context}"
-    return response
+def objective_function(x):
+    return -(x**2) + 5*x + 10  # Simple quadratic function
 
-# Function to search the web (using a free API as an example)
-def search_web(query):
-    url = f"https://api.duckduckgo.com/?q={query}&format=json"
-    response = requests.get(url)
-    data = json.loads(response.text)
-    return data.get('Abstract', 'No results found.')
+def create_individual():
+    return np.random.uniform(-10, 10)
 
-# Function to generate a download link for dataframes
-def get_table_download_link(df):
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="results.csv">Download CSV File</a>'
-    return href
+def crossover(parent1, parent2):
+    return (parent1 + parent2) / 2
 
-# Streamlit app
+def mutate(individual, mutation_rate):
+    if np.random.random() < mutation_rate:
+        return individual + np.random.normal(0, 1)
+    return individual
+
+def genetic_algorithm(population_size, generations, mutation_rate):
+    population = [create_individual() for _ in range(population_size)]
+    best_fitness_history = []
+
+    for gen in range(generations):
+        fitness_scores = [objective_function(ind) for ind in population]
+        best_fitness = max(fitness_scores)
+        best_fitness_history.append(best_fitness)
+
+        selected_indices = np.random.choice(range(population_size), size=population_size, p=np.array(fitness_scores)/sum(fitness_scores))
+        selected = [population[i] for i in selected_indices]
+
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1, parent2 = selected[i], selected[i+1]
+            child1 = mutate(crossover(parent1, parent2), mutation_rate)
+            child2 = mutate(crossover(parent1, parent2), mutation_rate)
+            new_population.extend([child1, child2])
+
+        population = new_population
+
+    return population, best_fitness_history
+
 def main():
-    st.set_page_config(page_title="Perplexity-like App", layout="wide")
+    st.title("Genetic Algorithm Proof-of-Concept")
+    st.write("This app demonstrates a simple genetic algorithm optimizing a quadratic function.")
 
-    # Sidebar
-    st.sidebar.title("Options")
-    model = st.sidebar.selectbox("Choose AI Model", ["GPT-3.5", "GPT-4", "Claude"])
-    include_web = st.sidebar.checkbox("Include web results", value=True)
-    upload_file = st.sidebar.file_uploader("Upload a file for context", type=["txt", "pdf", "csv"])
+    population_size = st.slider("Population Size", min_value=10, max_value=200, value=50, step=10)
+    generations = st.slider("Number of Generations", min_value=10, max_value=500, value=100, step=10)
+    mutation_rate = st.slider("Mutation Rate", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
 
-    # Main area
-    st.title("Perplexity-like App")
+    if st.button("Run Genetic Algorithm"):
+        final_population, fitness_history = genetic_algorithm(population_size, generations, mutation_rate)
 
-    # User input
-    query = st.text_input("Ask me anything:")
+        # Plot fitness history
+        fig, ax = plt.subplots()
+        ax.plot(range(generations), fitness_history)
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Best Fitness")
+        ax.set_title("Fitness History")
+        st.pyplot(fig)
 
-    # File content (if uploaded)
-    file_content = None
-    if upload_file is not None:
-        if upload_file.type == "text/plain":
-            file_content = upload_file.getvalue().decode("utf-8")
-        elif upload_file.type == "application/pdf":
-            st.warning("PDF support not implemented in this example.")
-        elif upload_file.type == "text/csv":
-            df = pd.read_csv(upload_file)
-            st.write("Uploaded CSV:")
-            st.dataframe(df.head())
-            file_content = df.to_string()
+        # Plot final population
+        x = np.linspace(-10, 10, 200)
+        y = [objective_function(xi) for xi in x]
 
-    if query:
-        # Create columns for results
-        col1, col2 = st.columns([2, 1])
+        fig, ax = plt.subplots()
+        ax.plot(x, y, label='Objective Function')
+        ax.scatter(final_population, [objective_function(ind) for ind in final_population], color='red', label='Final Population')
+        ax.set_xlabel("x")
+        ax.set_ylabel("f(x)")
+        ax.set_title("Final Population")
+        ax.legend()
+        st.pyplot(fig)
 
-        with col1:
-            st.subheader("AI Response")
-            with st.spinner("Generating response..."):
-                ai_response = get_ai_response(query, context=file_content)
-                st.write(ai_response)
-
-            if include_web:
-                st.subheader("Web Search Results")
-                with st.spinner("Searching the web..."):
-                    web_result = search_web(query)
-                    st.write(web_result)
-
-        with col2:
-            st.subheader("Sources")
-            st.write("1. Example Source 1")
-            st.write("2. Example Source 2")
-            st.write("3. Example Source 3")
-
-        # Additional features
-        st.subheader("Additional Features")
-        
-        # Sentiment analysis (simulated)
-        sentiment = st.selectbox("Analyze sentiment of the response:", ["Positive", "Neutral", "Negative"])
-        st.write(f"Sentiment: {sentiment}")
-
-        # Word cloud (placeholder)
-        st.write("Word Cloud:")
-        st.image("https://via.placeholder.com/400x200?text=Word+Cloud+Placeholder")
-
-        # Export results
-        st.subheader("Export Results")
-        results_df = pd.DataFrame({"Query": [query], "AI Response": [ai_response], "Web Result": [web_result]})
-        st.markdown(get_table_download_link(results_df), unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("---")
-    st.markdown("Created with Streamlit | Not affiliated with Perplexity AI")
+        st.write(f"Best solution found: x = {max(final_population, key=objective_function):.4f}")
+        st.write(f"Best fitness: {objective_function(max(final_population, key=objective_function)):.4f}")
 
 if __name__ == "__main__":
     main()
